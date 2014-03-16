@@ -23,6 +23,7 @@ executable rockband-songlist
   build-depends:       base >=4.6 && <4.7
                      , bytestring
                      , html-conduit >= 1.1 && <1.2
+                     , text
                      , xml-conduit
   -- hs-source-dirs:
   default-language:    Haskell2010
