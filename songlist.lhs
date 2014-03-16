@@ -13,3 +13,18 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+> import System.Environment
+> import System.Exit
+
+> main = getArgs >>= parse >>= putStr
+
+> parse ["-h"] = usage   >> exit
+> parse ["-v"] = version >> exit
+> parse [file] = readFile file
+> parse (_:_ ) = usage   >> die
+
+> usage   = putStrLn "Usage: songlist file"
+> version = putStrLn "rockband-songlist 0.1"
+> exit    = exitWith ExitSuccess
+> die     = exitWith (ExitFailure 1)
