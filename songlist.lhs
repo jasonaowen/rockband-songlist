@@ -14,14 +14,32 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+---
+
+The names and values of nodes and attributes are custom types that, by default,
+require painstaking construction which I found to obscure the readability of
+the code. This directive allows for simple string literals in the program to
+take the place of complicated constructors.
+
+> {-# LANGUAGE OverloadedStrings #-}
+
 > import System.Environment
 > import System.Exit
+> import Data.ByteString.Lazy.Char8 as B (pack, unpack, readFile)
+> import Text.HTML.DOM as H
+> import Text.XML
+> import Text.XML.Cursor
 
-> main = getArgs >>= parse >>= putStr
+> main = do
+>     lbs <- getArgs >>= parse
+>     let doc = H.parseLBS lbs
+>         cur = fromDocument doc
+>         songNodes = cur $// attributeIs "class" "song-row"
+>     putStr (show songNodes)
 
 > parse ["-h"] = usage   >> exit
 > parse ["-v"] = version >> exit
-> parse [file] = readFile file
+> parse [file] = B.readFile file
 > parse (_:_ ) = usage   >> die
 
 > usage   = putStrLn "Usage: songlist file"
