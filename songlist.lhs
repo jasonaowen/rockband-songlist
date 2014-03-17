@@ -23,13 +23,19 @@ take the place of complicated constructors.
 
 > {-# LANGUAGE OverloadedStrings #-}
 
+> import Data.ByteString.Char8 as S (unpack)
+> import Data.ByteString.Internal
+> import Data.ByteString.Lazy.Char8 as B (pack, unpack, readFile, toStrict, fromStrict)
+> import Data.ByteString.Lazy.Internal
+> import Data.ByteString.Search (replace)
+> import Data.Maybe
+> import Data.Text as T (Text, splitOn, init, unpack, pack)
+> import Data.Yaml.YamlLight
 > import System.Environment
 > import System.Exit
-> import Data.ByteString.Lazy.Char8 as B (pack, unpack, readFile)
 > import Text.HTML.DOM as H
 > import Text.XML
 > import Text.XML.Cursor
-> import Data.Text as T (Text, splitOn, init, unpack)
 
 Parsing the Beatles: Rock Band song list
 ========================================
@@ -89,12 +95,86 @@ than getting the content of the child of the `div` element.
 >                   | rating == "rating six-stars"   = 6
 >                     where rating = head (c $| attribute "class")
 
+Parsing the Beatles: Rock Band song details
+===========================================
+
+The relative URL in the song list points at a JSON-like document. It has
+elements we want - the various instrument difficulties and the source of the
+song - as well as several we don't want, such as leaderboard stats and IDs to
+find the song on various other services.
+
+> data SongDetail = SongDetail { detail_source :: Text,
+>                                detail_guitar :: Int,
+>                                detail_bass   :: Int,
+>                                detail_drum   :: Int,
+>                                detail_vocal  :: Int }
+>                     deriving (Show)
+
+The detail document is not actually well-formed JSON: it does not surround the
+object keys with double quotation marks, and it variously uses single and
+double quotation marks around the values.
+
+Rather than trying to fix these issues to allow the documents to be parsed as
+JSON, I found it easier to clean them up enough to parse them as YAML. To do
+so, all that needs to be done is to convert the tabs into spaces.
+
+> sanitizeSongDetailDocument  :: Data.ByteString.Lazy.Internal.ByteString -> Data.ByteString.Lazy.Internal.ByteString
+> sanitizeSongDetailDocument d = replace "\t"
+>                                        ("  " :: Data.ByteString.Lazy.Internal.ByteString)
+>                                        (B.toStrict d)
+
+> songDetailDocumentToYaml :: Data.ByteString.Lazy.Internal.ByteString -> IO YamlLight
+> songDetailDocumentToYaml = parseYamlBytes . B.toStrict
+
+> parseSongDetailYaml  :: YamlLight -> SongDetail
+> parseSongDetailYaml d = SongDetail {
+>                           detail_source = (T.pack . S.unpack . value) "type",
+>                           detail_guitar = difficulty "guitar_rating",
+>                           detail_bass   = difficulty "bass_rating",
+>                           detail_drum   = difficulty "drum_rating",
+>                           detail_vocal  = difficulty "vocal_rating" }
+>                         where value name = fromMaybe "" (lookupYL (YStr name) d >>= unStr)
+>                               cur        = fromDocument . H.parseLBS . B.fromStrict . value
+>                               difficulty = parseDifficulty . cur
+
+Now that we have all the data about a song, it can be composed into a single object.
+
+> data Song = Song { name  :: Text,
+>                    album :: Text,
+>                    year  :: Int,
+>                    source :: Text,
+>                    band  :: Int,
+>                    guitar :: Int,
+>                    bass :: Int,
+>                    drum :: Int,
+>                    vocal :: Int }
+>             deriving Show
+
+> song    :: SongListElement -> SongDetail -> Song
+> song l d = Song {
+>              name = list_name l,
+>              album = list_album l,
+>              year = list_year l,
+>              source = detail_source d,
+>              band = list_band l,
+>              guitar = detail_guitar d,
+>              bass = detail_bass d,
+>              drum = detail_drum d,
+>              vocal = detail_vocal d}
+
+> localFileName  :: Text -> Text
+> localFileName = last . (T.splitOn "/")
+
 > main = do
 >     lbs <- getArgs >>= parseArgs
 >     let doc = H.parseLBS lbs
 >         cur = fromDocument doc
 >         songNodes = cur $// element "tr"
->         songs = map parseSongNode songNodes
+>         songList = map parseSongNode songNodes
+>     songFiles <- mapM (B.readFile . T.unpack . localFileName . list_url) songList
+>     songYamls <- mapM (songDetailDocumentToYaml . sanitizeSongDetailDocument) songFiles
+>     let songDetails = map parseSongDetailYaml songYamls
+>         songs = zipWith song songList songDetails
 >     putStrLn (unlines (map show songs))
 
 > parseArgs ["-h"] = usage   >> exit
