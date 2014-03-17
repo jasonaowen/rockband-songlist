@@ -34,11 +34,11 @@ take the place of complicated constructors.
 The list of songs has some but not all of the data needed data, as well as the
 relative URL which will be needed to fetch more of the data.
 
-> data SongListElement = SongListElement { name  :: Text,
->                                          album :: Text,
->                                          year  :: Int,
->                                          band  :: Int,
->                                          url   :: Text }
+> data SongListElement = SongListElement { list_name  :: Text,
+>                                          list_album :: Text,
+>                                          list_year  :: Int,
+>                                          list_band  :: Int,
+>                                          list_url   :: Text }
 >                        deriving Show
 
 Each row of the song list is in the following format:
@@ -55,11 +55,11 @@ inner `span` element.
 
 > parseSongNode  :: Cursor -> SongListElement
 > parseSongNode c = SongListElement {
->                     name  = classContent "song",
->                     album = head albumElements,
->                     year  = (read . T.unpack . T.init . last) albumElements,
->                     band  = parseDifficulty difficulty,
->                     url   = head (c $| attribute "rel")}
+>                     list_name  = classContent "song",
+>                     list_album = head albumElements,
+>                     list_year  = (read . T.unpack . T.init . last) albumElements,
+>                     list_band  = parseDifficulty difficulty,
+>                     list_url   = head (c $| attribute "rel")}
 >                   where classChild name = attributeIs "class" name
 >                                        >=> child
 >                         classContent name = head (c $/ (classChild name)
