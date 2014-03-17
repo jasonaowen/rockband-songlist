@@ -31,6 +31,14 @@ take the place of complicated constructors.
 > import Text.XML.Cursor
 > import Data.Text as T (Text, splitOn, init, unpack)
 
+Parsing the Beatles: Rock Band song list
+========================================
+
+The website dynamically loads the list of songs to display by updating the DOM
+with a fragment of HTML fetched via AJAX. There are three lists: the songs
+available on the game disc, the songs available for download, and the
+combination of both. Here we parse these lists.
+
 The list of songs has some but not all of the data needed data, as well as the
 relative URL which will be needed to fetch more of the data.
 
