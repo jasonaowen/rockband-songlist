@@ -23,6 +23,8 @@ executable rockband-songlist
   build-depends:       base >=4.6 && <4.7
                      , bytestring
                      , html-conduit >= 1.1 && <1.2
+                     , HTTP
+                     , network
                      , stringsearch
                      , text
                      , xml-conduit

@@ -31,6 +31,8 @@ take the place of complicated constructors.
 > import Data.Maybe
 > import Data.Text as T (Text, splitOn, init, unpack, pack)
 > import Data.Yaml.YamlLight
+> import Network.HTTP
+> import Network.URI
 > import System.Environment
 > import System.Exit
 > import Text.HTML.DOM as H
@@ -52,7 +54,7 @@ relative URL which will be needed to fetch more of the data.
 >                                          list_album :: Text,
 >                                          list_year  :: Int,
 >                                          list_band  :: Int,
->                                          list_url   :: Text }
+>                                          list_url   :: URI }
 >                        deriving Show
 
 Each row of the song list is in the following format:
@@ -73,7 +75,7 @@ inner `span` element.
 >                     list_album = head albumElements,
 >                     list_year  = (read . T.unpack . T.init . last) albumElements,
 >                     list_band  = parseDifficulty difficulty,
->                     list_url   = head (c $| attribute "rel")}
+>                     list_url   = (fromJust . parseRelativeReference . T.unpack . head) (c $| attribute "rel")}
 >                   where classChild name = attributeIs "class" name
 >                                        >=> child
 >                         classContent name = head (c $/ (classChild name)
@@ -181,8 +183,16 @@ Rendering a song list
 >         ++ "," ++ show (drum   s)
 >         ++ "," ++ show (vocal  s)
 
-> localFileName  :: Text -> Text
-> localFileName = last . (T.splitOn "/")
+Fetching data
+=============
+
+> rootUri = fromJust (parseURI "http://www.thebeatlesrockband.com/")
+> customHeader = Header (HdrCustom "X-Requested-With") "XMLHttpRequest"
+
+> buildUri    :: URI -> URI
+> buildUri rel = relativeTo rel absUri
+
+> buildReq uri = Request uri GET [customHeader] ("" :: Data.ByteString.Lazy.Internal.ByteString)
 
 > main = do
 >     lbs <- getArgs >>= parseArgs
@@ -190,8 +200,9 @@ Rendering a song list
 >         cur = fromDocument doc
 >         songNodes = cur $// element "tr"
 >         songList = map parseSongNode songNodes
->     songFiles <- mapM (B.readFile . T.unpack . localFileName . list_url) songList
->     songYamls <- mapM (songDetailDocumentToYaml . sanitizeSongDetailDocument) songFiles
+>     songResponses <- mapM (simpleHTTP . buildReq . buildUri . list_url) songList
+>     songResponseBodies <- mapM getResponseBody songResponses
+>     songYamls <- mapM (songDetailDocumentToYaml . sanitizeSongDetailDocument) songResponseBodies
 >     let songDetails = map parseSongDetailYaml songYamls
 >         songs = zipWith song songList songDetails
 >     putStrLn csvHeader
