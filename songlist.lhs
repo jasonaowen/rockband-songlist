@@ -162,6 +162,25 @@ Now that we have all the data about a song, it can be composed into a single obj
 >              drum = detail_drum d,
 >              vocal = detail_vocal d}
 
+Rendering a song list
+=====================
+
+> csvHeader :: String
+> csvHeader = "Song Name,Album,Year,Source,Band Difficulty,"
+>          ++ "Guitar Difficulty,Bass Difficulty,Drum Difficulty,"
+>          ++ "Vocal Difficulty"
+
+> csv :: Song -> String
+> csv s =           show (name   s)
+>         ++ "," ++ show (album  s)
+>         ++ "," ++ show (year   s)
+>         ++ "," ++ show (source s)
+>         ++ "," ++ show (band   s)
+>         ++ "," ++ show (guitar s)
+>         ++ "," ++ show (bass   s)
+>         ++ "," ++ show (drum   s)
+>         ++ "," ++ show (vocal  s)
+
 > localFileName  :: Text -> Text
 > localFileName = last . (T.splitOn "/")
 
@@ -175,7 +194,8 @@ Now that we have all the data about a song, it can be composed into a single obj
 >     songYamls <- mapM (songDetailDocumentToYaml . sanitizeSongDetailDocument) songFiles
 >     let songDetails = map parseSongDetailYaml songYamls
 >         songs = zipWith song songList songDetails
->     putStrLn (unlines (map show songs))
+>     putStrLn csvHeader
+>     putStrLn (unlines (map csv songs))
 
 > parseArgs ["-h"] = usage   >> exit
 > parseArgs ["-v"] = version >> exit
