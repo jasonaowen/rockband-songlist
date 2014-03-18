@@ -16,27 +16,25 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 ---
 
-The names and values of nodes and attributes are custom types that, by default,
-require painstaking construction which I found to obscure the readability of
-the code. This directive allows for simple string literals in the program to
-take the place of complicated constructors.
+The names and values of nodes and attributes are various non-string types that,
+by default, require painstaking construction which I found to obscure the
+readability of the code. This directive allows for simple string literals in
+the program to take the place of complicated constructors.
 
 > {-# LANGUAGE OverloadedStrings #-}
 
 > import Data.ByteString.Char8 as S (unpack)
-> import Data.ByteString.Internal
-> import Data.ByteString.Lazy.Char8 as B (pack, unpack, readFile, toStrict, fromStrict)
-> import Data.ByteString.Lazy.Internal
+> import Data.ByteString.Lazy.Char8 as B (toStrict, fromStrict)
+> import Data.ByteString.Lazy.Internal (ByteString)
 > import Data.ByteString.Search (replace)
-> import Data.Maybe
+> import Data.Maybe (fromJust, fromMaybe)
 > import Data.Text as T (Text, splitOn, init, unpack, pack)
-> import Data.Yaml.YamlLight
+> import Data.Yaml.YamlLight (lookupYL, parseYamlBytes, unStr, YamlLight(YStr))
 > import Network.HTTP
-> import Network.URI
-> import System.Environment
-> import System.Exit
-> import Text.HTML.DOM as H
-> import Text.XML
+> import Network.URI (parseRelativeReference, parseURI, relativeTo, URI)
+> import System.Environment (getArgs)
+> import System.Exit (exitWith, ExitCode(ExitSuccess, ExitFailure))
+> import Text.HTML.DOM as H (parseLBS)
 > import Text.XML.Cursor
 
 Parsing the Beatles: Rock Band song list
@@ -45,16 +43,32 @@ Parsing the Beatles: Rock Band song list
 The website dynamically loads the list of songs to display by updating the DOM
 with a fragment of HTML fetched via AJAX. There are three lists: the songs
 available on the game disc, the songs available for download, and the
-combination of both. Here we parse these lists.
+combination of both.
 
-The list of songs has some but not all of the data needed data, as well as the
+> rootUri = fromJust
+>         . parseURI
+>         $ "http://www.thebeatlesrockband.com/"
+> allUri  = buildUri
+>         . fromJust
+>         . parseRelativeReference
+>         $ "/music/songFilter/ALL"
+> discUri = buildUri
+>         . fromJust
+>         . parseRelativeReference
+>         $ "/music/songFilter/DISC"
+> dlcUri  = buildUri
+>         . fromJust
+>         . parseRelativeReference
+>         $ "/music/songFilter/DLC"
+
+The list of songs has some but not all of the needed data, as well as the
 relative URL which will be needed to fetch more of the data.
 
 > data SongListElement = SongListElement { list_name  :: Text,
 >                                          list_album :: Text,
 >                                          list_year  :: Int,
 >                                          list_band  :: Int,
->                                          list_url   :: URI }
+>                                          list_uri   :: URI }
 >                        deriving Show
 
 Each row of the song list is in the following format:
@@ -73,11 +87,19 @@ inner `span` element.
 > parseSongNode c = SongListElement {
 >                     list_name  = classContent "song",
 >                     list_album = head albumElements,
->                     list_year  = (read . T.unpack . T.init . last) albumElements,
+>                     list_year  = read
+>                                . T.unpack
+>                                . T.init
+>                                . last
+>                                $ albumElements,
 >                     list_band  = parseDifficulty difficulty,
->                     list_url   = (fromJust . parseRelativeReference . T.unpack . head) (c $| attribute "rel")}
+>                     list_uri   = fromJust
+>                                . parseRelativeReference
+>                                . T.unpack
+>                                . head
+>                                $ (c $| attribute "rel")}
 >                   where classChild name = attributeIs "class" name
->                                        >=> child
+>                                       >=> child
 >                         classContent name = head (c $/ (classChild name)
 >                                                     >=> content)
 >                         albumElements = splitOn " (" (classContent "album")
@@ -101,9 +123,9 @@ Apostrophies are represented in the song list by &rsquo; aka right single
 quotation mark, which gets translated poorly. Before parsing the document,
 clean it up by replacing them with regular quotation marks.
 
-> sanitizeSongList  :: Data.ByteString.Lazy.Internal.ByteString -> Data.ByteString.Lazy.Internal.ByteString
+> sanitizeSongList  :: ByteString -> ByteString
 > sanitizeSongList l = replace "&rsquo;"
->                              ("&apos;" :: Data.ByteString.Lazy.Internal.ByteString)
+>                              ("&apos;" :: ByteString)
 >                              (B.toStrict l)
 
 Parsing the Beatles: Rock Band song details
@@ -129,57 +151,72 @@ Rather than trying to fix these issues to allow the documents to be parsed as
 JSON, I found it easier to clean them up enough to parse them as YAML. To do
 so, all that needs to be done is to convert the tabs into spaces.
 
-> sanitizeSongDetailDocument  :: Data.ByteString.Lazy.Internal.ByteString -> Data.ByteString.Lazy.Internal.ByteString
+> sanitizeSongDetailDocument  :: ByteString -> ByteString
 > sanitizeSongDetailDocument d = replace "\t"
->                                        ("  " :: Data.ByteString.Lazy.Internal.ByteString)
+>                                        ("  " :: ByteString)
 >                                        (B.toStrict d)
 
-> songDetailDocumentToYaml :: Data.ByteString.Lazy.Internal.ByteString -> IO YamlLight
+> songDetailDocumentToYaml :: ByteString -> IO YamlLight
 > songDetailDocumentToYaml = parseYamlBytes . B.toStrict
 
 > parseSongDetailYaml  :: YamlLight -> SongDetail
 > parseSongDetailYaml d = SongDetail {
->                           detail_source = (T.pack . S.unpack . value) "type",
+>                           detail_source = T.pack
+>                                         . S.unpack
+>                                         . value
+>                                         $ "type",
 >                           detail_guitar = difficulty "guitar_rating",
 >                           detail_bass   = difficulty "bass_rating",
 >                           detail_drum   = difficulty "drum_rating",
 >                           detail_vocal  = difficulty "vocal_rating" }
 >                         where value name = fromMaybe "" (lookupYL (YStr name) d >>= unStr)
->                               cur        = fromDocument . H.parseLBS . B.fromStrict . value
->                               difficulty = parseDifficulty . cur
+>                               cur        = fromDocument
+>                                          . H.parseLBS
+>                                          . B.fromStrict
+>                                          . value
+>                               difficulty = parseDifficulty
+>                                          . cur
 
 Now that we have all the data about a song, it can be composed into a single object.
 
-> data Song = Song { name  :: Text,
->                    album :: Text,
->                    year  :: Int,
+> data Song = Song { name   :: Text,
+>                    album  :: Text,
+>                    year   :: Int,
 >                    source :: Text,
->                    band  :: Int,
+>                    band   :: Int,
 >                    guitar :: Int,
->                    bass :: Int,
->                    drum :: Int,
->                    vocal :: Int }
+>                    bass   :: Int,
+>                    drum   :: Int,
+>                    vocal  :: Int }
 >             deriving Show
 
 > song    :: SongListElement -> SongDetail -> Song
-> song l d = Song {
->              name = list_name l,
->              album = list_album l,
->              year = list_year l,
->              source = detail_source d,
->              band = list_band l,
->              guitar = detail_guitar d,
->              bass = detail_bass d,
->              drum = detail_drum d,
->              vocal = detail_vocal d}
+> song l d = Song { name   = list_name  l,
+>                   album  = list_album l,
+>                   year   = list_year  l,
+>                   source = detail_source d,
+>                   band   = list_band  l,
+>                   guitar = detail_guitar d,
+>                   bass   = detail_bass   d,
+>                   drum   = detail_drum   d,
+>                   vocal  = detail_vocal  d }
 
 Rendering a song list
 =====================
+
+A comma separated value file is a simple format that can be parsed by several
+tools, including, most importantly, spreadsheet software. Once the data is in
+a spreadsheet, it can easily be sorted on any of its fields, and it can be
+prepared and printed simply.
+
+To ease sorting, the first line should name each of the fields.
 
 > csvHeader :: String
 > csvHeader = "Song Name,Album,Year,Source,Band Difficulty,"
 >          ++ "Guitar Difficulty,Bass Difficulty,Drum Difficulty,"
 >          ++ "Vocal Difficulty"
+
+Then, each line needs to have the data, separated by commas.
 
 > csv :: Song -> String
 > csv s =           show (name   s)
@@ -195,34 +232,61 @@ Rendering a song list
 Fetching data
 =============
 
-> rootUri = fromJust (parseURI "http://www.thebeatlesrockband.com/")
-> customHeader = Header (HdrCustom "X-Requested-With") "XMLHttpRequest"
+Each of the rows in the song list contain a relative URL used to fetch the
+song detail. These relative URLs cannot be used alone, but instead need to be
+anchored to an absolute URL to be fetched.
 
 > buildUri    :: URI -> URI
-> buildUri rel = relativeTo rel absUri
+> buildUri rel = relativeTo rel rootUri
 
-> buildReq uri = Request uri GET [customHeader] ("" :: Data.ByteString.Lazy.Internal.ByteString)
+One of the idiosyncracies of the Beatles: Rock Band web site is that the
+request to fetch a song detail document needs to include a particular header
+that browsers fill in automatically. Without it, the web service surrounds
+the content with the standard HTML headers and footers, making it impossible
+to parse the result.
+
+> customHeader = Header (HdrCustom "X-Requested-With") "XMLHttpRequest"
+
+Fetching a URI involves first building the request containing the URI, the
+method (GET), and our custom header, and then calling the library to carry out
+the request.
+
+> buildReq uri = Request uri GET [customHeader] ("" :: ByteString)
+> fetch = simpleHTTP . buildReq
 
 > main = do
->     lbs <- getArgs >>= parseArgs
->     let doc = (H.parseLBS . sanitizeSongList) lbs
->         cur = fromDocument doc
->         songNodes = cur $// element "tr"
->         songList = map parseSongNode songNodes
->     songResponses <- mapM (simpleHTTP . buildReq . buildUri . list_url) songList
->     songResponseBodies <- mapM getResponseBody songResponses
->     songYamls <- mapM (songDetailDocumentToYaml . sanitizeSongDetailDocument) songResponseBodies
->     let songDetails = map parseSongDetailYaml songYamls
->         songs = zipWith song songList songDetails
->     putStrLn csvHeader
->     putStrLn (unlines (map csv songs))
+>      songListResponse <- getArgs
+>                      >>= parseArgs
+>                      >>= getResponseBody
+>      let songList = (map parseSongNode)
+>                   . ($// element "tr")
+>                   . fromDocument
+>                   . H.parseLBS
+>                   . sanitizeSongList
+>                   $ songListResponse
+>      songDetailYamls <- mapM ( fetch
+>                              . buildUri
+>                              . list_uri )
+>                              songList
+>                     >>= mapM getResponseBody
+>                     >>= mapM ( songDetailDocumentToYaml
+>                              . sanitizeSongDetailDocument )
+>      let songDetails = map parseSongDetailYaml songDetailYamls
+>          songs = zipWith song songList songDetails
+>      putStrLn csvHeader
+>      putStrLn . unlines
+>               . (map csv)
+>               $ songs
 
-> parseArgs ["-h"] = usage   >> exit
-> parseArgs ["-v"] = version >> exit
-> parseArgs [file] = B.readFile file
-> parseArgs (_:_ ) = usage   >> die
+> parseArgs ["-h"  ] = usage   >> exit
+> parseArgs ["-v"  ] = version >> exit
+> parseArgs ["all" ] = fetch allUri
+> parseArgs ["disc"] = fetch discUri
+> parseArgs ["dlc" ] = fetch dlcUri
+> parseArgs (_:_   ) = usage   >> die
+> parseArgs [      ] = usage   >> die
 
-> usage   = putStrLn "Usage: songlist file"
+> usage   = putStrLn "Usage: songlist (all|disc|dlc)"
 > version = putStrLn "rockband-songlist 0.1"
 > exit    = exitWith ExitSuccess
 > die     = exitWith (ExitFailure 1)
