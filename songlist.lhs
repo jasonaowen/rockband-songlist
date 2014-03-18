@@ -97,6 +97,15 @@ than getting the content of the child of the `div` element.
 >                   | rating == "rating six-stars"   = 6
 >                     where rating = head (c $| attribute "class")
 
+Apostrophies are represented in the song list by &rsquo; aka right single
+quotation mark, which gets translated poorly. Before parsing the document,
+clean it up by replacing them with regular quotation marks.
+
+> sanitizeSongList  :: Data.ByteString.Lazy.Internal.ByteString -> Data.ByteString.Lazy.Internal.ByteString
+> sanitizeSongList l = replace "&rsquo;"
+>                              ("&apos;" :: Data.ByteString.Lazy.Internal.ByteString)
+>                              (B.toStrict l)
+
 Parsing the Beatles: Rock Band song details
 ===========================================
 
@@ -196,7 +205,7 @@ Fetching data
 
 > main = do
 >     lbs <- getArgs >>= parseArgs
->     let doc = H.parseLBS lbs
+>     let doc = (H.parseLBS . sanitizeSongList) lbs
 >         cur = fromDocument doc
 >         songNodes = cur $// element "tr"
 >         songList = map parseSongNode songNodes
